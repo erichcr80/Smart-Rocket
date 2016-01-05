@@ -56,7 +56,7 @@ class led3
       digitalWrite(power_pin, HIGH);
     }
 
-    rgb get_current() 
+    rgb get_current()
     {
       return current;
     }
@@ -91,12 +91,12 @@ class led3
       analogWrite(b_pin, output.b);
     }
 
-    short get_max() 
+    short get_max()
     {
       return max(max(current.r, current.g), current.b);
     }
-    
-    short get_min() 
+
+    short get_min()
     {
       return min(min(current.r, current.g), current.b);
     }
@@ -104,67 +104,67 @@ class led3
 
 class fader
 {
-  int max_level;
-  
-  int current_level;
-  int step_value;
+    int max_level;
 
-  bool done;
-  
-public:
- fader() : current_level(0), step_value(0), done(true), max_level(255) {}
- fader(int step_value) : current_level(0), step_value(step_value), done(false), max_level(255) {}
+    int current_level;
+    int step_value;
 
-  void next()
-  {
-    Serial.print("next: "); Serial.print(current_level); Serial.print("\t"); Serial.print(step_value); Serial.print("\t");
-    current_level += step_value;
+    bool done;
 
-    if (current_level >= max_level)
+  public:
+    fader() : current_level(0), step_value(0), done(true), max_level(255) {}
+    fader(int step_value) : current_level(0), step_value(step_value), done(false), max_level(255) {}
+
+    void next()
     {
-      step_value = -step_value;
-      current_level = max_level;
+      Serial.print("next: "); Serial.print(current_level); Serial.print("\t"); Serial.print(step_value); Serial.print("\t");
+      current_level += step_value;
+
+      if (current_level >= max_level)
+      {
+        step_value = -step_value;
+        current_level = max_level;
+      }
+      else if (current_level <= 0)
+      {
+        step_value = -step_value;
+        current_level = 0;
+
+        done = true;
+      }
     }
-    else if (current_level <= 0)
+
+    int get_level()
     {
-      step_value = -step_value;
+      return current_level;
+    }
+
+    void set_max_level(int value)
+    {
+      max_level = value;
+    }
+
+    void set_current_level(int value, int new_step_value)
+    {
+      current_level = value;
+      done = false;
+
+      step_value = new_step_value;
+
+      if (current_level >= max_level && step_value > 0)
+        step_value = -step_value;
+    }
+
+    bool is_done()
+    {
+      return done;
+    }
+
+    bool reset()
+    {
       current_level = 0;
-
-      done = true;
+      done = false;
     }
-  }
-
-  int get_level()
-  {
-    return current_level;
-  }
-
-  void set_max_level(int value)
-  {
-    max_level = value;
-  }
-
-  void set_current_level(int value, int new_step_value)
-  {
-    current_level = value;
-    done = false;
-
-    step_value = new_step_value;
-
-    if (current_level >= max_level && step_value > 0)
-      step_value = -step_value;
-  }
-
-  bool is_done() 
-  {
-    return done;
-  }
-
-  bool reset()
-  {
-    current_level = 0;
-    done = false;
-  }
 };
 
 led3 leds[2] =
@@ -180,8 +180,8 @@ enum rocket_mode
   sleep
 } current_mode;
 
-long demo_mode_wait = 30L * 1000L;
-long sleep_mode_wait = 5L * 60L * 1000L;
+long demo_mode_wait = 30L * 1000L; // 30 seconds
+long sleep_mode_wait = 10L * 60L * 1000L; // 10 minutes
 
 long current_wait = 0; // how long has this direction been up?
 int last_direction = 0; // 0 = x, 1 = y, 2 = z
@@ -203,17 +203,18 @@ void setup()
   //Serial.begin(115200);
 }
 
-float normxValue = 0.0;
-float normyValue = 0.0;
-float normzValue = 0.0;
+/* parallel arrays for moving average */
+int lastIndex = 0;
+int lastCount = 5;
+float lastX[5];
+float lastY[5];
+float lastZ[5];
 
 void do_direction()
 {
   int xValue = analogRead(xpin);
   int yValue = analogRead(ypin);
   int zValue = analogRead(zpin);
-
-  //Serial.print(defaultAccVal); Serial.print("\t");
 
   Serial.print(xValue); Serial.print("\t");
   Serial.print(yValue); Serial.print("\t");
@@ -229,21 +230,44 @@ void do_direction()
 
   float dLength = sqrt(fxValue * fxValue + fyValue * fyValue + fzValue * fzValue);
 
-  normxValue = fxValue / dLength;
-  normyValue = fyValue / dLength;
-  normzValue = fzValue / dLength;
+  float normxValue = fxValue / dLength;
+  float normyValue = fyValue / dLength;
+  float normzValue = fzValue / dLength;
 
   Serial.print(normxValue); Serial.print("\t");
   Serial.print(normyValue); Serial.print("\t");
   Serial.print(normzValue); Serial.print("\t");
+
+  lastX[lastIndex] = normxValue;
+  lastY[lastIndex] = normyValue;
+  lastZ[lastIndex] = normzValue;
+
+  lastIndex++;
+
+  if (lastIndex == lastCount)
+    lastIndex = 0;
 }
+
+float getAverageValue(float * array)
+{
+  float acc = 0.0;
+
+  for (int i = 0; i < lastCount; i++)
+    acc += array[i];
+
+  return acc / lastCount;
+}
+
+float getX() { return getAverageValue(lastX); }
+float getY() { return getAverageValue(lastY); }
+float getZ() { return getAverageValue(lastZ); }
 
 void do_flight()
 {
   /* blend colors based on direction */
-  int rOut = abs(normxValue) * 255;
-  int gOut = abs(normyValue) * 255;
-  int bOut = abs(normzValue) * 255;
+  int rOut = abs(getX()) * 255;
+  int gOut = abs(getY()) * 255;
+  int bOut = abs(getZ()) * 255;
 
   leds[0].set_rgb(rOut, gOut, bOut);
   leds[1].set_rgb(rOut, gOut, bOut);
@@ -278,25 +302,25 @@ rgb sleep_color = rgb::red;
 void do_sleep()
 {
   sleep_fader.set_max_level(64); // quarter brightness
-  
-   sleep_fader.next();
 
-   if (sleep_fader.is_done())
+  sleep_fader.next();
+
+  if (sleep_fader.is_done())
     sleep_fader.reset();
 
   for (int i = 0; i < 2; i++)
     leds[i].set_rgb(sleep_color.dim(sleep_fader.get_level()));
 
-    delay(100);
+  delay(100);
 }
 
 int get_current_direction()
 {
-  if (abs(normxValue) > abs(normyValue) && abs(normxValue) > abs(normzValue))
+  if (abs(getX()) > abs(getY()) && abs(getX()) > abs(getZ()))
     return 0;
-  else if (abs(normyValue) > abs(normxValue) && abs(normyValue) > abs(normzValue))
+  else if (abs(getY()) > abs(getX()) && abs(getY()) > abs(getZ()))
     return 1;
-  else if (abs(normzValue) > abs(normxValue) && abs(normzValue) > abs(normyValue))
+  else if (abs(getZ()) > abs(getX()) && abs(getZ()) > abs(getY()))
     return 2;
 
   return 0;
@@ -312,7 +336,7 @@ void loop()
     do_demo();
   else if (current_mode == sleep)
     do_sleep();
-    
+
   int d = 5;
   delay(d);
 
@@ -331,17 +355,17 @@ void loop()
   if (current_wait > sleep_mode_wait)
   {
     if (current_mode != sleep)
-      current_mode = sleep; 
+      current_mode = sleep;
   }
   else if (current_wait > demo_mode_wait)
-  { 
+  {
     if (current_mode != demo)
     {
       faders[0].reset();
-       
+
       faders[0].set_current_level(255, -2);
       faders[1].set_current_level(255, -2);
-      
+
       colors[0] = leds[0].get_current();
       colors[1] = leds[1].get_current();
     }
